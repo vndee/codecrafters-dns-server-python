@@ -169,7 +169,7 @@ async def main(**kwargs):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="localhost", help="Host to listen on")
-    parser.add_argument("--port", type=int, default=4221, help="Port to listen on")
+    parser.add_argument("--port", type=int, default=2053, help="Port to listen on")
     args = parser.parse_args()
 
     asyncio.run(main(**vars(args)))
