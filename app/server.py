@@ -56,7 +56,7 @@ class UDPResponse:
 class AsyncUDPServer:
     """Asynchronous UDP server implementation."""
 
-    def __init__(self, host: str = "localhost", port: int = 4221):
+    def __init__(self, host: str = "localhost", port: int = 4221, **kwargs):
         self.host = host
         self.port = port
         self.transport = None
