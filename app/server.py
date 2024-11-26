@@ -1,6 +1,7 @@
 import socket
 import struct
 from dataclasses import dataclass
+from typing import List
 
 
 @dataclass
@@ -40,6 +41,25 @@ class DNSHeader:
         )
 
 
+@dataclass
+class DNSQuestion:
+    qname: bytes
+    qtype: int
+    qclass: int
+
+    def to_bytes(self) -> bytes:
+        return self.qname + struct.pack("!HH", self.qtype, self.qclass)
+
+
+@dataclass
+class DNSMessage:
+    header: DNSHeader
+    question: List[DNSQuestion]
+
+    def to_bytes(self) -> bytes:
+        return self.header.to_bytes() + b''.join([q.to_bytes() for q in self.question])
+
+
 def create_dns_response() -> bytes:
     # Create header with specified values
     header = DNSHeader(
@@ -58,7 +78,13 @@ def create_dns_response() -> bytes:
         arcount=0
     )
 
-    return header.to_bytes()
+    question = DNSQuestion(
+        qname=b'\x0ccodecrafters\x02io\x00',
+        qtype=1,
+        qclass=1
+    )
+
+    return DNSMessage(header, [question]).to_bytes()
 
 
 def main():
