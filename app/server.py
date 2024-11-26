@@ -108,7 +108,7 @@ class DNSQuery:
         return f"DNSQuery(header={self.header}, question={self.question})"
 
 
-def create_dns_response(packet_id: int, opcode: int, rd: int) -> bytes:
+def create_dns_response(packet_id: int, opcode: int, rd: int, qname: bytes, qtype: int, qclass: int) -> bytes:
     header = DNSHeader(
         id=packet_id,
         qr=1,
@@ -126,15 +126,15 @@ def create_dns_response(packet_id: int, opcode: int, rd: int) -> bytes:
     )
 
     question = DNSQuestion(
-        qname=b'\x0ccodecrafters\x02io\x00',
-        qtype=1,
-        qclass=1
+        qname=qname,
+        qtype=qtype,
+        qclass=qclass
     )
 
     resource = DNSResource(
-        name=b'\x0ccodecrafters\x02io\x00',
-        type=1,
-        class_=1,
+        name=qname,
+        type=qtype,
+        class_=qclass,
         ttl=60,
         rdlength=4,
         rdata=b"\x08\x08\x08\x08"
@@ -155,7 +155,7 @@ def main():
             query = DNSQuery(buf)
             print(f"Received data from {source} with length {len(buf)}: {query}")
 
-            response = create_dns_response(query.header.id, query.header.opcode, query.header.rd)
+            response = create_dns_response(query.header.id, query.header.opcode, query.header.rd, query.question.qname, query.question.qtype, query.question.qclass)
             udp_socket.sendto(response, source)
             print(f"Sent response with length {len(response)}")
 
