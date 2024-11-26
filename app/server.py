@@ -50,6 +50,7 @@ class DNSQuestion:
     def to_bytes(self) -> bytes:
         return self.qname + struct.pack("!HH", self.qtype, self.qclass)
 
+
 @dataclass
 class DNSResource:
     name: bytes
@@ -73,11 +74,35 @@ class DNSMessage:
         return self.header.to_bytes() + b''.join([q.to_bytes() for q in self.question]) + b''.join([r.to_bytes() for r in self.resource])
 
 
-def create_dns_response() -> bytes:
-    # Create header with specified values
+@dataclass
+class DNSQuery:
+    def __init__(self, data: bytes):
+        self.data = data
+        self.header = DNSHeader()
+        self.question = DNSQuestion(b'', 0, 0)
+
+        self.parse()
+
+    def parse(self):
+        self.header.id, flags, self.header.qdcount, self.header.ancount, self.header.nscount, self.header.arcount = struct.unpack("!HHHHHH", self.data[:12])
+        self.header.qr = (flags & 0x8000) >> 15
+        self.header.opcode = (flags & 0x7800) >> 11
+        self.header.aa = (flags & 0x0400) >> 10
+        self.header.tc = (flags & 0x0200) >> 9
+        self.header.rd = (flags & 0x0100) >> 8
+        self.header.ra = (flags & 0x0080) >> 7
+        self.header.z = (flags & 0x0070) >> 4
+        self.header.rcode = flags & 0x000F
+
+        qname = self.data[12:]
+        self.question.qname = qname[:qname.index(b'\x00') + 1]
+        self.question.qtype, self.question.qclass = struct.unpack("!HH", qname[len(self.question.qname):len(self.question.qname) + 4])
+
+
+def create_dns_response(packet_id: int) -> bytes:
     header = DNSHeader(
-        id=1234,  # Specified ID
-        qr=1,  # This is a response
+        id=packet_id,
+        qr=1,
         opcode=0,
         aa=0,
         tc=0,
@@ -120,8 +145,8 @@ def main():
             buf, source = udp_socket.recvfrom(512)
             print(f"Received data from {source} with length {len(buf)}: {buf}")
 
-            # Create and send response
-            response = create_dns_response()
+            query = DNSQuery(buf)
+            response = create_dns_response(query.header.id)
             udp_socket.sendto(response, source)
             print(f"Sent response with length {len(response)}")
 
