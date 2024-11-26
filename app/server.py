@@ -136,6 +136,9 @@ class DNSQuery:
             current_offset += 4
             self.questions.append(DNSQuestion(qname, qtype, qclass))
 
+    def __str__(self):
+        return f"DNSQuery(header={self.header}, questions={self.questions})"
+
 
 def create_dns_response(query: DNSQuery) -> bytes:
     header = DNSHeader(
