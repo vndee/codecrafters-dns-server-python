@@ -159,7 +159,7 @@ def create_not_implemented_response(query: DNSQuery) -> bytes:
 
 
 def forward_query(query: DNSQuery, resolver_addr: str, resolver_port: int) -> bytes:
-    if query.header.opcode == 1:
+    if query.header.opcode in [1, 2]:
         return create_not_implemented_response(query)
 
     forward_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
