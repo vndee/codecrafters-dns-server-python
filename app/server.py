@@ -72,7 +72,7 @@ def create_dns_response() -> bytes:
         ra=0,
         z=0,
         rcode=0,
-        qdcount=0,
+        qdcount=1,
         ancount=0,
         nscount=0,
         arcount=0
