@@ -1,7 +1,7 @@
 import socket
 import struct
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
 
 
 @dataclass
@@ -40,9 +40,6 @@ class DNSHeader:
             self.arcount  # ARCOUNT
         )
 
-    def __str__(self):
-        return f"DNSHeader(id={self.id}, qr={self.qr}, opcode={self.opcode}, aa={self.aa}, tc={self.tc}, rd={self.rd}, ra={self.ra}, z={self.z}, rcode={self.rcode}, qdcount={self.qdcount}, ancount={self.ancount}, nscount={self.nscount}, arcount={self.arcount})"
-
 
 @dataclass
 class DNSQuestion:
@@ -52,9 +49,6 @@ class DNSQuestion:
 
     def to_bytes(self) -> bytes:
         return self.qname + struct.pack("!HH", self.qtype, self.qclass)
-
-    def __str__(self):
-        return f"DNSQuestion(qname={self.qname}, qtype={self.qtype}, qclass={self.qclass})"
 
 
 @dataclass
@@ -73,24 +67,59 @@ class DNSResource:
 @dataclass
 class DNSMessage:
     header: DNSHeader
-    question: List[DNSQuestion]
-    resource: List[DNSResource] = None
+    questions: List[DNSQuestion]
+    resources: List[DNSResource]
 
     def to_bytes(self) -> bytes:
-        return self.header.to_bytes() + b''.join([q.to_bytes() for q in self.question]) + b''.join([r.to_bytes() for r in self.resource])
+        return self.header.to_bytes() + \
+            b''.join(q.to_bytes() for q in self.questions) + \
+            b''.join(r.to_bytes() for r in self.resources)
 
 
-@dataclass
 class DNSQuery:
     def __init__(self, data: bytes):
         self.data = data
         self.header = DNSHeader()
-        self.question = DNSQuestion(b'', 0, 0)
-
+        self.questions: List[DNSQuestion] = []
         self.parse()
 
+    def parse_name(self, offset: int) -> Tuple[bytes, int]:
+        """Parse a compressed or uncompressed name starting at the given offset."""
+        result = bytearray()
+        current_offset = offset
+
+        while True:
+            length = self.data[current_offset]
+
+            if length == 0:
+                # End of name
+                result.append(0)
+                current_offset += 1
+                break
+
+            if length & 0xC0 == 0xC0:
+                # This is a pointer
+                pointer = struct.unpack("!H", self.data[current_offset:current_offset + 2])[0] & 0x3FFF
+                pointed_name, _ = self.parse_name(pointer)
+                result.extend(pointed_name[:-1])  # Don't include the terminating 0
+                current_offset += 2
+                if not result or result[-1] != 0:
+                    result.append(0)
+                break
+
+            # Regular label
+            result.append(length)
+            current_offset += 1
+            result.extend(self.data[current_offset:current_offset + length])
+            current_offset += length
+
+        return bytes(result), current_offset
+
     def parse(self):
-        self.header.id, flags, self.header.qdcount, self.header.ancount, self.header.nscount, self.header.arcount = struct.unpack("!HHHHHH", self.data[:12])
+        # Parse header
+        self.header.id, flags, self.header.qdcount, self.header.ancount, \
+            self.header.nscount, self.header.arcount = struct.unpack("!HHHHHH", self.data[:12])
+
         self.header.qr = (flags & 0x8000) >> 15
         self.header.opcode = (flags & 0x7800) >> 11
         self.header.aa = (flags & 0x0400) >> 10
@@ -100,47 +129,43 @@ class DNSQuery:
         self.header.z = (flags & 0x0070) >> 4
         self.header.rcode = flags & 0x000F
 
-        qname = self.data[12:]
-        self.question.qname = qname[:qname.index(b'\x00') + 1]
-        self.question.qtype, self.question.qclass = struct.unpack("!HH", qname[len(self.question.qname):len(self.question.qname) + 4])
+        current_offset = 12
+        for _ in range(self.header.qdcount):
+            qname, current_offset = self.parse_name(current_offset)
+            qtype, qclass = struct.unpack("!HH", self.data[current_offset:current_offset + 4])
+            current_offset += 4
+            self.questions.append(DNSQuestion(qname, qtype, qclass))
 
-    def __str__(self):
-        return f"DNSQuery(header={self.header}, question={self.question})"
 
-
-def create_dns_response(packet_id: int, opcode: int, rd: int, qname: bytes, qtype: int, qclass: int) -> bytes:
+def create_dns_response(query: DNSQuery) -> bytes:
     header = DNSHeader(
-        id=packet_id,
+        id=query.header.id,
         qr=1,
-        opcode=opcode,
+        opcode=query.header.opcode,
         aa=0,
         tc=0,
-        rd=rd,
+        rd=query.header.rd,
         ra=0,
         z=0,
-        rcode=0 if opcode == 0 else 4,
-        qdcount=1,
-        ancount=1,
+        rcode=0 if query.header.opcode == 0 else 4,
+        qdcount=len(query.questions),
+        ancount=len(query.questions),
         nscount=0,
         arcount=0
     )
 
-    question = DNSQuestion(
-        qname=qname,
-        qtype=qtype,
-        qclass=qclass
-    )
+    resources = []
+    for question in query.questions:
+        resources.append(DNSResource(
+            name=question.qname,
+            type=question.qtype,
+            class_=question.qclass,
+            ttl=60,
+            rdlength=4,
+            rdata=b"\x08\x08\x08\x08"
+        ))
 
-    resource = DNSResource(
-        name=qname,
-        type=qtype,
-        class_=qclass,
-        ttl=60,
-        rdlength=4,
-        rdata=b"\x08\x08\x08\x08"
-    )
-
-    return DNSMessage(header, [question], [resource]).to_bytes()
+    return DNSMessage(header, query.questions, resources).to_bytes()
 
 
 def main():
@@ -155,7 +180,7 @@ def main():
             query = DNSQuery(buf)
             print(f"Received data from {source} with length {len(buf)}: {query}")
 
-            response = create_dns_response(query.header.id, query.header.opcode, query.header.rd, query.question.qname, query.question.qtype, query.question.qclass)
+            response = create_dns_response(query)
             udp_socket.sendto(response, source)
             print(f"Sent response with length {len(response)}")
 
