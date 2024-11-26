@@ -138,6 +138,9 @@ class DNSQuery:
             current_offset += rdlength
             self.resources.append(DNSResource(name, type_, class_, ttl, rdlength, rdata))
 
+    def __str__(self):
+        return f"DNSQuery(header={self.header}, questions={self.questions}, resources={self.resources})"
+
 
 def create_not_implemented_response(query: DNSQuery) -> bytes:
     header = DNSHeader(
