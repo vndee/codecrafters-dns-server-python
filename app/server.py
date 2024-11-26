@@ -162,6 +162,7 @@ def create_not_implemented_response(query: DNSQuery) -> bytes:
 
 
 def forward_query(query: DNSQuery, resolver_addr: str, resolver_port: int) -> bytes:
+    print(f"Fowarding query to {resolver_addr}:{resolver_port} -> {query}")
     if query.header.opcode in [1, 2]:
         return create_not_implemented_response(query)
 
@@ -261,7 +262,7 @@ def main():
 
             response = forward_query(query, resolver_host, resolver_port)
             udp_socket.sendto(response, source)
-            print(f"Sent response with length {len(response)}")
+            print(f"Sent response with length {len(response)}: {response}")
 
         except Exception as e:
             print(f"Error processing request: {e}")
