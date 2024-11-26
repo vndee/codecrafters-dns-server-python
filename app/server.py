@@ -109,7 +109,6 @@ class DNSQuery:
         return bytes(result), current_offset
 
     def parse(self):
-        # Parse header
         self.header.id, flags, self.header.qdcount, self.header.ancount, \
             self.header.nscount, self.header.arcount = struct.unpack("!HHHHHH", self.data[:12])
 
@@ -140,7 +139,29 @@ class DNSQuery:
             self.resources.append(DNSResource(name, type_, class_, ttl, rdlength, rdata))
 
 
+def create_not_implemented_response(query: DNSQuery) -> bytes:
+    header = DNSHeader(
+        id=query.header.id,
+        qr=1,
+        opcode=query.header.opcode,
+        aa=0,
+        tc=0,
+        rd=query.header.rd,
+        ra=1,
+        z=0,
+        rcode=4,
+        qdcount=len(query.questions),
+        ancount=0,
+        nscount=0,
+        arcount=0
+    )
+    return DNSMessage(header, query.questions, []).to_bytes()
+
+
 def forward_query(query: DNSQuery, resolver_addr: str, resolver_port: int) -> bytes:
+    if query.header.opcode == 1:
+        return create_not_implemented_response(query)
+
     forward_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     forward_socket.settimeout(5)
 
