@@ -50,14 +50,27 @@ class DNSQuestion:
     def to_bytes(self) -> bytes:
         return self.qname + struct.pack("!HH", self.qtype, self.qclass)
 
+@dataclass
+class DNSResource:
+    name: bytes
+    type: int
+    class_: int
+    ttl: int
+    rdlength: int
+    rdata: bytes
+
+    def to_bytes(self) -> bytes:
+        return self.name + struct.pack("!HHIH", self.type, self.class_, self.ttl, self.rdlength) + self.rdata
+
 
 @dataclass
 class DNSMessage:
     header: DNSHeader
     question: List[DNSQuestion]
+    resource: List[DNSResource] = None
 
     def to_bytes(self) -> bytes:
-        return self.header.to_bytes() + b''.join([q.to_bytes() for q in self.question])
+        return self.header.to_bytes() + b''.join([q.to_bytes() for q in self.question]) + b''.join([r.to_bytes() for r in self.resource])
 
 
 def create_dns_response() -> bytes:
@@ -73,7 +86,7 @@ def create_dns_response() -> bytes:
         z=0,
         rcode=0,
         qdcount=1,
-        ancount=0,
+        ancount=1,
         nscount=0,
         arcount=0
     )
@@ -84,7 +97,16 @@ def create_dns_response() -> bytes:
         qclass=1
     )
 
-    return DNSMessage(header, [question]).to_bytes()
+    resource = DNSResource(
+        name=b'\x0ccodecrafters\x02io\x00',
+        type=1,
+        class_=1,
+        ttl=60,
+        rdlength=4,
+        rdata=b"\x08\x08\x08\x08"
+    )
+
+    return DNSMessage(header, [question], [resource]).to_bytes()
 
 
 def main():
