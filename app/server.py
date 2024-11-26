@@ -40,6 +40,9 @@ class DNSHeader:
             self.arcount  # ARCOUNT
         )
 
+    def __str__(self):
+        return f"DNSHeader(id={self.id}, qr={self.qr}, opcode={self.opcode}, aa={self.aa}, tc={self.tc}, rd={self.rd}, ra={self.ra}, z={self.z}, rcode={self.rcode}, qdcount={self.qdcount}, ancount={self.ancount}, nscount={self.nscount}, arcount={self.arcount})"
+
 
 @dataclass
 class DNSQuestion:
@@ -49,6 +52,9 @@ class DNSQuestion:
 
     def to_bytes(self) -> bytes:
         return self.qname + struct.pack("!HH", self.qtype, self.qclass)
+
+    def __str__(self):
+        return f"DNSQuestion(qname={self.qname}, qtype={self.qtype}, qclass={self.qclass})"
 
 
 @dataclass
@@ -98,6 +104,9 @@ class DNSQuery:
         self.question.qname = qname[:qname.index(b'\x00') + 1]
         self.question.qtype, self.question.qclass = struct.unpack("!HH", qname[len(self.question.qname):len(self.question.qname) + 4])
 
+    def __str__(self):
+        return f"DNSQuery(header={self.header}, question={self.question})"
+
 
 def create_dns_response(packet_id: int) -> bytes:
     header = DNSHeader(
@@ -143,9 +152,9 @@ def main():
     while True:
         try:
             buf, source = udp_socket.recvfrom(512)
-            print(f"Received data from {source} with length {len(buf)}: {buf}")
-
             query = DNSQuery(buf)
+            print(f"Received data from {source} with length {len(buf)}: {query}")
+
             response = create_dns_response(query.header.id)
             udp_socket.sendto(response, source)
             print(f"Sent response with length {len(response)}")
