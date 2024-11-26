@@ -1,5 +1,6 @@
 import socket
 import struct
+import argparse
 from dataclasses import dataclass
 from typing import List, Tuple
 
@@ -21,23 +22,18 @@ class DNSHeader:
     arcount: int = 0  # 16 bits
 
     def to_bytes(self) -> bytes:
-        # Pack the first 16 bits: ID
         first_16 = self.id
-
-        # Pack the next 16 bits: QR(1) | OPCODE(4) | AA(1) | TC(1) | RD(1) | RA(1) | Z(3) | RCODE(4)
         flags = (self.qr << 15) | (self.opcode << 11) | (self.aa << 10) | \
                 (self.tc << 9) | (self.rd << 8) | (self.ra << 7) | \
                 (self.z << 4) | self.rcode
-
-        # Pack everything into bytes using network byte order (big-endian)
         return struct.pack(
             "!HHHHHH",
-            first_16,  # ID
-            flags,  # Flags
-            self.qdcount,  # QDCOUNT
-            self.ancount,  # ANCOUNT
-            self.nscount,  # NSCOUNT
-            self.arcount  # ARCOUNT
+            first_16,
+            flags,
+            self.qdcount,
+            self.ancount,
+            self.nscount,
+            self.arcount
         )
 
 
@@ -81,10 +77,10 @@ class DNSQuery:
         self.data = data
         self.header = DNSHeader()
         self.questions: List[DNSQuestion] = []
+        self.resources: List[DNSResource] = []
         self.parse()
 
     def parse_name(self, offset: int) -> Tuple[bytes, int]:
-        """Parse a compressed or uncompressed name starting at the given offset."""
         result = bytearray()
         current_offset = offset
 
@@ -92,22 +88,19 @@ class DNSQuery:
             length = self.data[current_offset]
 
             if length == 0:
-                # End of name
                 result.append(0)
                 current_offset += 1
                 break
 
             if length & 0xC0 == 0xC0:
-                # This is a pointer
                 pointer = struct.unpack("!H", self.data[current_offset:current_offset + 2])[0] & 0x3FFF
                 pointed_name, _ = self.parse_name(pointer)
-                result.extend(pointed_name[:-1])  # Don't include the terminating 0
+                result.extend(pointed_name[:-1])
                 current_offset += 2
                 if not result or result[-1] != 0:
                     result.append(0)
                 break
 
-            # Regular label
             result.append(length)
             current_offset += 1
             result.extend(self.data[current_offset:current_offset + length])
@@ -136,11 +129,75 @@ class DNSQuery:
             current_offset += 4
             self.questions.append(DNSQuestion(qname, qtype, qclass))
 
-    def __str__(self):
-        return f"DNSQuery(header={self.header}, questions={self.questions})"
+        for _ in range(self.header.ancount):
+            name, current_offset = self.parse_name(current_offset)
+            type_, class_, ttl, rdlength = struct.unpack(
+                "!HHIH", self.data[current_offset:current_offset + 10]
+            )
+            current_offset += 10
+            rdata = self.data[current_offset:current_offset + rdlength]
+            current_offset += rdlength
+            self.resources.append(DNSResource(name, type_, class_, ttl, rdlength, rdata))
 
 
-def create_dns_response(query: DNSQuery) -> bytes:
+def forward_query(query: DNSQuery, resolver_addr: str, resolver_port: int) -> bytes:
+    forward_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    forward_socket.settimeout(5)
+
+    responses = []
+    for question in query.questions:
+        single_query = DNSMessage(
+            header=DNSHeader(
+                id=query.header.id,
+                qr=0,
+                opcode=query.header.opcode,
+                rd=1,
+                qdcount=1
+            ),
+            questions=[question],
+            resources=[]
+        )
+
+        try:
+            forward_socket.sendto(single_query.to_bytes(), (resolver_addr, resolver_port))
+            response_data, _ = forward_socket.recvfrom(512)
+            responses.append(DNSQuery(response_data))
+        except socket.timeout:
+            print(f"Timeout while querying resolver for {question}")
+            continue
+        except Exception as e:
+            print(f"Error while forwarding query: {e}")
+            continue
+
+    forward_socket.close()
+
+    if not responses:
+        return create_error_response(query)
+
+    combined_response = DNSMessage(
+        header=DNSHeader(
+            id=query.header.id,
+            qr=1,
+            opcode=query.header.opcode,
+            aa=0,
+            tc=0,
+            rd=query.header.rd,
+            ra=1,
+            z=0,
+            rcode=0,
+            qdcount=len(query.questions),
+            ancount=sum(len(r.resources) for r in responses),
+            nscount=0,
+            arcount=0
+        ),
+        questions=query.questions,
+        resources=[res for resp in responses for res in resp.resources]
+    )
+
+    return combined_response.to_bytes()
+
+
+def create_error_response(query: DNSQuery) -> bytes:
     header = DNSHeader(
         id=query.header.id,
         qr=1,
@@ -148,31 +205,26 @@ def create_dns_response(query: DNSQuery) -> bytes:
         aa=0,
         tc=0,
         rd=query.header.rd,
-        ra=0,
+        ra=1,
         z=0,
-        rcode=0 if query.header.opcode == 0 else 4,
+        rcode=2,
         qdcount=len(query.questions),
-        ancount=len(query.questions),
+        ancount=0,
         nscount=0,
         arcount=0
     )
-
-    resources = []
-    for question in query.questions:
-        resources.append(DNSResource(
-            name=question.qname,
-            type=question.qtype,
-            class_=question.qclass,
-            ttl=60,
-            rdlength=4,
-            rdata=b"\x08\x08\x08\x08"
-        ))
-
-    return DNSMessage(header, query.questions, resources).to_bytes()
+    return DNSMessage(header, query.questions, []).to_bytes()
 
 
 def main():
-    print("DNS Server starting...")
+    parser = argparse.ArgumentParser(description='DNS Forwarding Server')
+    parser.add_argument('--resolver', required=True, help='Resolver address in format host:port')
+    args = parser.parse_args()
+
+    resolver_host, resolver_port = args.resolver.split(':')
+    resolver_port = int(resolver_port)
+
+    print(f"DNS Forwarding Server starting... (forwarding to {resolver_host}:{resolver_port})")
 
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_socket.bind(("127.0.0.1", 2053))
@@ -181,15 +233,15 @@ def main():
         try:
             buf, source = udp_socket.recvfrom(512)
             query = DNSQuery(buf)
-            print(f"Received data from {source} with length {len(buf)}: {query}")
+            print(f"Received query from {source} with length {len(buf)}")
 
-            response = create_dns_response(query)
+            response = forward_query(query, resolver_host, resolver_port)
             udp_socket.sendto(response, source)
             print(f"Sent response with length {len(response)}")
 
         except Exception as e:
-            print(f"Error receiving data: {e}")
-            break
+            print(f"Error processing request: {e}")
+            continue
 
 
 if __name__ == "__main__":
