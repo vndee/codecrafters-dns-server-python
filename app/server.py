@@ -170,6 +170,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="localhost", help="Host to listen on")
     parser.add_argument("--port", type=int, default=2053, help="Port to listen on")
+    parser.add_argument("--resolver", default="127.0.0.1:5354", help="DNS resolver to use")
     args = parser.parse_args()
 
     asyncio.run(main(**vars(args)))
