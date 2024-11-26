@@ -91,6 +91,7 @@ class AsyncUDPServer:
             """Process received datagram and send response."""
             request = UDPRequest(data, addr)
             try:
+                print(f"Received request: {request.command} {request.params}")
                 handler = self.server.handlers.get(request.command)
                 if handler:
                     response = await handler(request)
