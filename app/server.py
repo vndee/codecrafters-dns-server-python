@@ -155,7 +155,7 @@ def main():
             query = DNSQuery(buf)
             print(f"Received data from {source} with length {len(buf)}: {query}")
 
-            response = create_dns_response(query.header.id)
+            response = create_dns_response(query.header.id, query.header.opcode, query.header.rd)
             udp_socket.sendto(response, source)
             print(f"Sent response with length {len(response)}")
 
