@@ -254,7 +254,7 @@ def main():
         try:
             buf, source = udp_socket.recvfrom(512)
             query = DNSQuery(buf)
-            print(f"Received query from {source} with length {len(buf)}")
+            print(f"Received query from {source} with length {len(buf)}: {query}")
 
             response = forward_query(query, resolver_host, resolver_port)
             udp_socket.sendto(response, source)
