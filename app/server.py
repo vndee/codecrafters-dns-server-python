@@ -108,17 +108,17 @@ class DNSQuery:
         return f"DNSQuery(header={self.header}, question={self.question})"
 
 
-def create_dns_response(packet_id: int) -> bytes:
+def create_dns_response(packet_id: int, opcode: int, rd: int) -> bytes:
     header = DNSHeader(
         id=packet_id,
         qr=1,
-        opcode=0,
+        opcode=opcode,
         aa=0,
         tc=0,
-        rd=0,
+        rd=rd,
         ra=0,
         z=0,
-        rcode=0,
+        rcode=0 if opcode == 0 else 4,
         qdcount=1,
         ancount=1,
         nscount=0,
