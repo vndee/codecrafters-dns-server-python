@@ -10,7 +10,7 @@ def main():
     while True:
         try:
             buf, source = udp_socket.recvfrom(512)
-            print(f"Received data from {source} with length {len(buf)}")
+            print(f"Received data from {source} with length {len(buf)}: {buf}")
             response = b""
 
             udp_socket.sendto(response, source)
